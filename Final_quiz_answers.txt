@@ -1,0 +1,411 @@
+1. How many distinct skus have the brand “Polo fas”, and are either size “XXL” or “black” in color?
+
+----
+SELECT COUNT(DISTINCT sku) AS sku_ct  
+FROM SKUINFO  
+WHERE brand = 'Polo fas' AND (size = 'XXL' OR color = 'black')
+
+#Answer: 13.623
+
+2 There was one store in the database which had only 11 days in one of its months (in other words, that store/month/year combination only contained 11 days of transaction data). In what city and state was this store located?
+
+-----
+SELECT t.store AS store_id, s.city AS city_id, s.state AS state_id,   
+EXTRACT(Month FROM t.saledate) AS sale_m, COUNT(DISTINCT EXTRACT(Day FROM t.saledate)) AS day_ct  
+FROM TRNSACT t JOIN STRINFO s  
+ON t.store = s.store  
+GROUP BY store_id, sale_m, city_id, state_id  
+HAVING day_ct = 11
+
+#Answer:
+Atlanta, GA
+
+3 Which sku number had the greatest increase in total sales revenue from
+November to December?
+
+------
+SELECT TOP 1 Nov_rev.sku AS sku_id, (Dec_rev.Dec_sum - Nov_rev.Nov_sum) AS Rev_diff
+FROM
+(SELECT sku, SUM(amt) AS Nov_sum
+FROM TRNSACT
+WHERE stype = 'P' AND EXTRACT(Month FROM saledate) = 11
+GROUP BY sku) AS Nov_rev
+JOIN
+(SELECT sku, SUM(amt) AS Dec_sum
+FROM TRNSACT
+WHERE stype = 'P' AND EXTRACT(Month FROM saledate) = 12
+GROUP BY sku) AS Dec_rev
+ON Nov_rev.sku = Dec_rev.sku
+ORDER BY Rev_diff DESC
+
+#Answer:
+3949538
+
+4. What vendor has the greatest number of distinct skus in the transaction
+table that do not exist in the skstinfo table? (Remember that vendors are
+listed as distinct numbers in our data set).
+
+------
+SELECT TOP 1 s.vendor, COUNT(DISTINCT t.sku) AS sku_ct
+FROM
+TRNSACT t JOIN SKUINFO s
+ON t.sku = s.sku
+LEFT JOIN SKSTINFO s2
+ON s.sku = s2.sku
+WHERE s2.sku IS NULL
+GROUP BY s.vendor
+ORDER BY sku_ct DESC
+
+#Answer: 5715232
+
+
+5. What is the brand of the sku with the greatest standard deviation in
+sprice? Only examine skus which have been part of over 100 transactions.
+
+------
+SELECT s.brand, STDDEV_POP(t.sprice) AS std_price
+FROM 
+TRNSACT t JOIN SKUINFO s
+ON
+t.sku = s.sku
+WHERE t.sku IN
+(SELECT COUNT(sku)
+FROM TRNSACT
+GROUP BY sku
+HAVING COUNT(sku)>100)
+GROUP BY s.brand
+ORDER BY std_price DESC
+
+#Answer: Hart Sch
+
+
+
+6. What is the city and state of the store which had the greatest increase in
+average daily revenue (as I define it in Teradata Week 5 Exercise Guide)
+from November to December?
+
+------
+SELECT Nov_rev.store, Nov_rev.city, Nov_rev.state, Dec_rev.daily_rev - Nov_rev.daily_rev AS abs_diff
+FROM
+(SELECT t.store, s2.state, s2.city, EXTRACT(Month FROM t.saledate)||EXTRACT(Year FROM t.saledate) AS month_year, SUM(t.amt)/COUNT(DISTINCT t.saledate) AS daily_rev
+FROM TRNSACT t
+JOIN SKUINFO s
+ON s.sku = t.sku
+JOIN STRINFO s2
+ON s2.store = t.store
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 11
+GROUP BY t.store, s2.state, s2.city, month_year
+HAVING COUNT(DISTINCT t.saledate)>=20)
+AS Nov_rev
+
+JOIN
+
+(SELECT t.store, s2.state, s2.city, EXTRACT(Month FROM t.saledate)||EXTRACT(Year FROM t.saledate) AS month_year, SUM(t.amt)/COUNT(DISTINCT t.saledate) AS daily_rev
+FROM TRNSACT t
+JOIN SKUINFO s
+ON s.sku = t.sku
+JOIN STRINFO s2
+ON s2.store = t.store
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 12
+GROUP BY t.store, s2.state, s2.city, month_year
+HAVING COUNT(DISTINCT t.saledate)>=20)
+AS Dec_rev
+
+ON Dec_rev.store = Nov_rev.store
+ORDER BY abs_diff DESC
+
+#Answer:
+Metairie, LA
+
+
+7. Compare the average daily revenue (as I define it in Teradata Week 5
+Exercise Guide) of the store with the highest msa_income and the store
+with the lowest median msa_income (according to the msa_income field).
+In what city and state were these two stores, and which store had a higher
+average daily revenue?
+
+------
+# highest msa_income  
+SELECT top1.store, top1.city, top1.state, SUM(daily_rev.amt_sum)/SUM(daily_rev.day_ct) AS group_avg
+FROM 
+(SELECT TOP 1 store, city, state, msa_income
+FROM STORE_MSA
+ORDER BY msa_income DESC) AS top1
+LEFT JOIN 
+
+(SELECT store, EXTRACT(Month FROM saledate)||EXTRACT(Year FROM saledate) AS month_year, SUM(amt) AS amt_sum, COUNT(DISTINCT saledate) AS day_ct
+FROM TRNSACT
+WHERE stype = 'P' AND NOT (EXTRACT(Month FROM saledate) = 8 AND EXTRACT(Year FROM saledate) = 2005)
+GROUP BY store, month_year
+HAVING day_ct>=20) AS daily_rev
+ON top1.store = daily_rev.store
+GROUP BY Top1.store, top1.city, top1.state
+ 
+
+#lowest median msa_income
+
+SELECT top1.store, top1.city, top1.state, SUM(daily_rev.amt_sum)/SUM(daily_rev.day_ct) AS group_avg
+FROM 
+(SELECT TOP 1 store, city, state, msa_income
+FROM STORE_MSA
+ORDER BY msa_income ASC) AS top1
+LEFT JOIN 
+
+(SELECT store, EXTRACT(Month FROM saledate)||EXTRACT(Year FROM saledate) AS month_year, SUM(amt) AS amt_sum, COUNT(DISTINCT saledate) AS day_ct
+FROM TRNSACT
+WHERE stype = 'P' AND NOT (EXTRACT(Month FROM saledate) = 8 AND EXTRACT(Year FROM saledate) = 2005)
+GROUP BY store, month_year
+HAVING day_ct>=20) AS daily_rev
+ON top1.store = daily_rev.store
+GROUP BY Top1.store, top1.city, top1.state
+
+
+#Answer:
+highest income -- 3902 SPANISH FORT AL 17884.08
+lowest income -- 2707 MCALLEN TX 56601.99
+
+
+8. Divide the msa_income groups up so that msa_incomes between 1 and
+20,000 are labeled 'low', msa_incomes between 20,001 and 30,000 are
+labeled 'med-low', msa_incomes between 30,001 and 40,000 are labeled
+'med-high', and msa_incomes between 40,001 and 60,000 are labeled
+'high'. Which of these groups has the highest average daily revenue (as I
+define it in Teradata Week 5 Exercise Guide) per store?
+
+------
+SELECT CASE     WHEN m.msa_income>=1 AND m.msa_income<=20000 THEN 'low'
+                WHEN m.msa_income>20000 AND m.msa_income<=30000 THEN 'med-low'
+                WHEN m.msa_income>30000 AND m.msa_income<=40000 THEN 'med-high'
+                WHEN m.msa_income>40000 AND m.msa_income<=60000 THEN 'high'
+                                END AS income_group,
+      SUM(daily_rev.amt_sum)/SUM(daily_rev.day_ct) AS group_avg
+FROM STORE_MSA m 
+JOIN
+
+(SELECT store, EXTRACT(Month FROM saledate)||EXTRACT(Year FROM saledate) AS month_year, SUM(amt) AS amt_sum, COUNT(DISTINCT saledate) AS day_ct
+FROM TRNSACT
+WHERE stype = 'P' AND NOT (EXTRACT(Month FROM saledate) = 8 AND EXTRACT(Year FROM saledate) = 2005)
+GROUP BY store, month_year
+HAVING COUNT(DISTINCT saledate)>=20) AS daily_rev
+
+ON m.store = daily_rev.store
+GROUP BY income_group
+ORDER BY group_avg DESC
+
+#Answer:
+Low
+
+
+9. Divide stores up so that stores with msa populations between 1 and
+100,000 are labeled 'very small', stores with msa populations between
+100,001 and 200,000 are labeled 'small', stores with msa populations
+between 200,001 and 500,000 are labeled 'med_small', stores with msa
+populations between 500,001 and 1,000,000 are labeled 'med_large',
+stores with msa populations between 1,000,001 and 5,000,000 are labeled
+“large”, and stores with msa_population greater than 5,000,000 are
+labeled “very large”. What is the average daily revenue for a store in a “very large” population
+msa?
+
+------
+SELECT CASE    
+       WHEN m.msa_pop >=1 AND m.msa_pop <= 100000 THEN 'very small'
+       WHEN m.msa_pop >=100001 AND m.msa_pop <= 200000 THEN 'small'
+       WHEN m.msa_pop >=200001 AND m.msa_pop <= 500000 THEN 'med-small'
+       WHEN m.msa_pop >=500001 AND m.msa_pop <= 1000000 THEN 'med-large'
+       WHEN m.msa_pop >=1000001 AND m.msa_pop <= 5000000 THEN 'large'
+       WHEN m.msa_pop >=500001 THEN 'very-large'
+     END AS pop_group,
+      SUM(daily_rev.amt_sum)/SUM(daily_rev.day_ct) AS group_avg
+FROM STORE_MSA m 
+JOIN
+
+(SELECT store, EXTRACT(Month FROM saledate)||EXTRACT(Year FROM saledate) AS month_year, SUM(amt) AS amt_sum, COUNT(DISTINCT saledate) AS day_ct
+FROM TRNSACT
+WHERE stype = 'P' AND NOT (EXTRACT(Month FROM saledate) = 8 AND EXTRACT(Year FROM saledate) = 2005)
+GROUP BY store, month_year
+HAVING COUNT(DISTINCT saledate)>=20) AS daily_rev
+
+ON m.store = daily_rev.store
+GROUP BY pop_group
+ORDER BY group_avg DESC
+
+#Answer:
+$25452
+
+
+10. Which department in which store had the greatest percent increase in
+average daily sales revenue from November to December, and what city
+and state was that store located in? Only examine departments whose
+total sales were at least $1,000 in both November and December.
+
+------
+SELECT Nov_rev.store, Nov_rev.deptdesc, Nov_rev.state, Nov_rev.city, (Dec_rev.daily_rev - Nov_rev.daily_rev)/Nov_rev.daily_rev AS perc_diff_rev
+
+FROM
+(SELECT s2.store, s2.city,s2.state,d.deptdesc, SUM(t.amt)/COUNT(DISTINCT t.saledate) AS daily_rev
+FROM TRNSACT t JOIN SKUINFO s
+ON t.sku = s.sku
+JOIN DEPTINFO d
+ON d.dept = s.dept
+JOIN STRINFO s2
+ON s2.store = t.store
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 11
+GROUP BY s2.store, d.deptdesc, s2.city, s2.state
+HAVING SUM(t.amt) >= 1000) AS Nov_rev
+
+JOIN
+
+(SELECT s2.store,s2.city,s2.state, d.deptdesc, SUM(t.amt)/COUNT(DISTINCT t.saledate) AS daily_rev
+FROM TRNSACT t JOIN SKUINFO s
+ON t.sku = s.sku
+JOIN DEPTINFO d
+ON d.dept = s.dept
+JOIN STRINFO s2
+ON s2.store = t.store
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 12
+GROUP BY s2.store, d.deptdesc, s2.city, s2.state
+HAVING SUM(t.amt) >= 1000) AS Dec_rev
+
+ON 
+Dec_rev.store = Nov_rev.store AND Dec_rev.deptdesc = Nov_rev.deptdesc
+ORDER BY perc_diff_rev DESC
+
+
+#Answer:
+3403 LOUISVL KS SALINA 5.96
+
+
+11.Which department within a particular store had the greatest decrease in
+average daily sales revenue from August to September, and in what city
+and state was that store located?
+
+------
+SELECT Aug_rev.store, Aug_rev.deptdesc, Aug_rev.state, Aug_rev.city, (Sep_rev.daily_rev - Aug_rev.daily_rev) AS diff_rev
+
+FROM
+(SELECT s2.store, s2.city,s2.state,d.deptdesc, SUM(t.amt)/COUNT(DISTINCT t.saledate) AS daily_rev
+FROM 
+STRINFO s2 JOIN TRNSACT t
+ON s2.store = t.store
+JOIN SKUINFO s
+ON t.sku = s.sku
+JOIN DEPTINFO d
+ON s.dept = d.dept
+
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 8
+GROUP BY s2.store, d.deptdesc, s2.city, s2.state
+HAVING COUNT(DISTINCT t.saledate)>=20
+) AS Aug_rev
+
+JOIN
+
+(SELECT s2.store,s2.city,s2.state, d.deptdesc, SUM(t.amt)/COUNT(DISTINCT t.saledate) AS daily_rev
+FROM 
+STRINFO s2 JOIN TRNSACT t
+ON s2.store = t.store
+JOIN SKUINFO s
+ON t.sku = s.sku
+JOIN DEPTINFO d
+ON s.dept = d.dept
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 9
+GROUP BY s2.store, d.deptdesc, s2.city, s2.state
+HAVING COUNT(DISTINCT t.saledate)>=20) AS Sep_rev
+ON 
+Aug_rev.store = Sep_rev.store AND Aug_rev.deptdesc = Sep_rev.deptdesc
+AND Aug_rev.state = Sep_rev.state AND Aug_rev.city = Sep_rev.city
+ORDER BY diff_rev ASC
+
+
+#Answer:
+CLinique, Louisville, KY
+
+
+12. Identify the department within a particular store that had the greatest
+decrease innumber of items sold from August to September. How many
+fewer items did that department sell in September compared to August,
+and in what city and state was that store located?
+
+------
+SELECT Aug_it.store, Aug_it.city, Aug_it.state, (Sep_it.item_ct - Aug_it.item_ct) AS abs_diff
+FROM
+(SELECT t.store,s2.city, s2.state, d.deptdesc, COUNT(t.sku) AS item_ct
+FROM 
+SKUINFO s JOIN
+TRNSACT t
+ON s.sku = t.sku
+JOIN
+DEPTINFO d
+ON d.dept = s.dept
+JOIN STRINFO s2
+ON t.store = s2.store
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 8
+GROUP BY t.store, d.deptdesc, s2.city, s2.state)
+AS Aug_it
+
+JOIN
+
+(SELECT t.store,s2.city, s2.state, d.deptdesc, COUNT(t.sku) AS item_ct
+FROM 
+SKUINFO s JOIN
+TRNSACT t
+ON s.sku = t.sku
+JOIN
+DEPTINFO d
+ON d.dept = s.dept
+JOIN STRINFO s2
+ON t.store = s2.store
+WHERE t.stype = 'P' AND NOT (EXTRACT(Month FROM t.saledate) = 8 AND EXTRACT(Year FROM t.saledate) = 2005) AND EXTRACT(Month FROM t.saledate) = 9
+GROUP BY t.store, d.deptdesc, s2.city, s2.state)
+AS Sep_it
+
+ON Sep_it.store = Aug_it.store AND Sep_it.deptdesc = Aug_it.deptdesc
+ORDER BY abs_diff ASC
+
+
+#Answer:
+9103 LOUISVILLE KY -13491
+
+
+13  For each store, determine the month with the minimum average daily
+revenue (as I define it in Teradata Week 5 Exercise Guide) . For each of the
+twelve months of the year, count how many stores' minimum average
+daily revenue was in that month. During which month(s) did over 100
+stores have their minimum average daily revenue?
+
+------
+SELECT month_year, COUNT(store)
+FROM
+(SELECT store, EXTRACT(Month FROM saledate)||EXTRACT(Year FROM saledate) AS month_year, SUM(amt)/COUNT(DISTINCT saledate) AS daily_rev, RANK() OVER (PARTITION BY store ORDER BY daily_rev DESC) AS rev_rank
+FROM TRNSACT
+WHERE stype = 'P' AND NOT (EXTRACT(Month FROM saledate) = 8 AND EXTRACT(Year FROM saledate) = 2005)
+GROUP BY store, month_year
+HAVING COUNT(DISTINCT saledate)>=20
+) AS rank_store
+WHERE rank_store.rev_rank = 12
+GROUP BY month_year
+ORDER BY month_year
+
+#Answer:
+August Only
+
+
+14. Write a query that determines the month in which each store had its
+maximum number of sku units returned. During which month did the
+greatest number of stores have their maximum number of sku units
+returned?
+
+------
+SELECT month_year, COUNT(store)
+FROM
+(SELECT store, EXTRACT(Month FROM saledate)||EXTRACT(Year FROM saledate) AS month_year, COUNT(sku) AS daily_ret, RANK() OVER (PARTITION BY store ORDER BY daily_ret DESC) AS rev_rank
+FROM TRNSACT
+WHERE stype = 'R' AND NOT (EXTRACT(Month FROM saledate) = 8 AND EXTRACT(Year FROM saledate) = 2005)
+GROUP BY store, month_year
+HAVING COUNT(DISTINCT saledate)>=20
+) AS rank_store
+WHERE rank_store.rev_rank = 1
+GROUP BY month_year
+ORDER BY month_year
+
+#Answer:
+December
